@@ -1,0 +1,6 @@
+core_cm4.h:1679:22:__NVIC_EnableIRQ	16	static
+fsl_common.h:484:28:EnableIRQ	16	static
+fsl_ftm.h:671:20:FTM_StartTimer	24	static
+ftm_input_capture.c:46:6:FTM0_IRQHandler	8	static
+ftm_input_capture.c:57:6:delay	16	static
+ftm_input_capture.c:69:5:main	56	static
