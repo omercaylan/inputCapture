@@ -1,5 +1,5 @@
 # inputCapture
- <p> ftm modulu </p> 
+ <p> ftm module </p> 
  <p> mcuxpresso </p>
  <p> k64 input capture pwm </p>
  <p> bus speed 60mhz </p>
