@@ -1,9 +1,14 @@
-/*
- * Copyright (c) 2015, Freescale Semiconductor, Inc.
- * Copyright 2016-2017 NXP
- * All rights reserved.
- *
- * SPDX-License-Identifier: BSD-3-Clause
+/**
+ * @file main.c
+ * @author ömer ÇAYLAN
+ * @brief Pwm freq calculation //!TEST CODE
+ * @version 0.1
+ * @date 2021-01-06
+ * 
+ * @copyright Copyright (c) 2021
+ * NOTE: Pwm capture test kodu
+ * Cozum: Timer overflow oldugu icin pwm degeri duzgun olcmuyordu, interrupt icinde overflow'u aktif ederek bu arada ki 
+ * farki cikararak cozum bulundu.
  */
 
 #include "fsl_debug_console.h"
@@ -43,30 +48,45 @@ volatile bool ftmIsrFlag = false;
 /*******************************************************************************
  * Code
  ******************************************************************************/
-volatile uint8_t counter = 1;
-volatile uint32_t value1 = 0;
-volatile uint32_t value2 = 0;
+volatile uint32_t flag = 1;
+volatile uint32_t captureVal1;
+volatile uint32_t captureVal2;
+uint32_t g_timerOverflowInterruptCount = 0;
+volatile uint32_t tempOverflow1 = 0;
+volatile uint32_t tempOverflow2 = 0;
+
+//channel interrupr handle ediliyor ve sirasiyla degerler degiskenlere ataniyor-
+//"flag" sadece sirali okumak icin, overflow olduysa o anki overflowtime i aliyoruz ve bir birinden cikariyoruz.
 void FTM_INPUT_CAPTURE_HANDLER(void)
 {
-    if ((FTM_GetStatusFlags(BOARD_FTM_BASEADDR) & FTM_CHANNEL_FLAG) == FTM_CHANNEL_FLAG)
+
+    if ((FTM_GetStatusFlags(BOARD_FTM_BASEADDR) & kFTM_TimeOverflowFlag) == kFTM_TimeOverflowFlag)
+    {
+        /* Clear overflow interrupt flag.*/
+        FTM_ClearStatusFlags(BOARD_FTM_BASEADDR, kFTM_TimeOverflowFlag);
+        g_timerOverflowInterruptCount++;
+    }
+    else if ((FTM_GetStatusFlags(BOARD_FTM_BASEADDR) & FTM_CHANNEL_FLAG) == FTM_CHANNEL_FLAG)
     {
         /* Clear interrupt flag.*/
         FTM_ClearStatusFlags(BOARD_FTM_BASEADDR, FTM_CHANNEL_FLAG);
-        //     if (ftmIsrFlag == false)
+
+        if (ftmIsrFlag == false)
         {
-
-            if (counter == 1)
+            if (flag == 1)
             {
-
-                value1 = BOARD_FTM_BASEADDR->CONTROLS[BOARD_FTM_INPUT_CAPTURE_CHANNEL].CnV;
-                counter = 2;
+                flag = 0;
+                captureVal1 = BOARD_FTM_BASEADDR->CONTROLS[BOARD_FTM_INPUT_CAPTURE_CHANNEL].CnV;
+                tempOverflow1 = g_timerOverflowInterruptCount;
             }
-            else if (counter == 2)
+            else if (flag == 0)
             {
-                /* code */
-                value2 = BOARD_FTM_BASEADDR->CONTROLS[BOARD_FTM_INPUT_CAPTURE_CHANNEL].CnV;
+                flag = 1;
+
+                captureVal2 = BOARD_FTM_BASEADDR->CONTROLS[BOARD_FTM_INPUT_CAPTURE_CHANNEL].CnV;
+
+                tempOverflow2 = g_timerOverflowInterruptCount;
                 ftmIsrFlag = true;
-                counter = 1;
             }
         }
     }
@@ -74,58 +94,59 @@ void FTM_INPUT_CAPTURE_HANDLER(void)
     __DSB();
 }
 
-void delay(void)
-{
-    volatile uint32_t i = 0U;
-    for (i = 0U; i < 80000U; ++i)
-    {
-        __asm("NOP"); /* delay */
-    }
-}
-
-/*!
- * @brief Main function
- */
 int main(void)
 {
     ftm_config_t ftmInfo;
-    uint32_t captureVal;
 
     /* Board pin, clock, debug console init */
     BOARD_InitPins();
     BOARD_BootClockRUN();
     BOARD_InitDebugConsole();
-    BOARD_InitBootPeripherals();
-    /* Print a note to terminal */
-    PRINTF("\r\nFTM input capture example\r\n");
-    uint32_t capture_diff = 0;
-    uint32_t captureDif = 0;
 
-    while (1)
+    FTM_GetDefaultConfig(&ftmInfo);
+    /* Initialize FTM module */
+    FTM_Init(BOARD_FTM_BASEADDR, &ftmInfo);
+
+    /* Setup dual-edge capture on a FTM channel pair */
+    FTM_SetupInputCapture(BOARD_FTM_BASEADDR, BOARD_FTM_INPUT_CAPTURE_CHANNEL, kFTM_FallingEdge, 0);
+
+    /* Set the timer to be in free-running mode */
+    BOARD_FTM_BASEADDR->MOD = 0xFFFF;
+
+    /* Enable channel interrupt when the second edge is detected */
+    FTM_EnableInterrupts(BOARD_FTM_BASEADDR, FTM_CHANNEL_INTERRUPT_ENABLE);
+    FTM_EnableInterrupts(BOARD_FTM_BASEADDR, kFTM_TimeOverflowInterruptEnable);
+
+    /* Enable at the NVIC */
+    EnableIRQ(FTM_INTERRUPT_NUMBER);
+
+    FTM_StartTimer(BOARD_FTM_BASEADDR, kFTM_SystemClock);
+
+    uint32_t captureDiff = 0;
+    float channelBusSpeed = 60;
+    float clkMs = 0;
+    float pulseWidth = 0;
+    uint32_t tempOver = 0;
+    while (true)
     {
         if (ftmIsrFlag == true)
         {
 
-            //  PRINTF("\r\nvalue1 C()V=%d\r\n", value1);
-            //  PRINTF("\r\nvalue2 C()V=%d\r\n", value2);
-            if (value2 > value1)
+            if (captureVal2 > captureVal1)
             {
-                captureDif = value2 - value1;
-                //  PRINTF("\r\n value2 - value1=%d\r\n", captureDif);
-
-                //  PRINTF("\r\nfreq=%lf\r\n", (double)(1 / ((value2 - value1) * 0.0166)));
-                //  PRINTF("\r\ndifference /60 =%d\r\n", (value2 - value1) / 60);
-                //   capture_diff = (6001 - value1) + value2;
-                // PRINTF("\r\ncapture_diff=%d\r\n", capture_diff);
+                captureDiff = captureVal2 - captureVal1;
             }
             else
             {
-              //  captureDif = (6001 - value1) + value2;
+                captureDiff = ((0xFFFF - captureVal1) + captureVal2);
             }
 
-           // ftmIsrFlag = false;
-        }
+            clkMs = (float)(1 / channelBusSpeed);
+            tempOver = tempOverflow2 - tempOverflow1;
+            pulseWidth = (float)(((tempOver * 65536 - captureVal1 + captureVal2) + 1) * clkMs);
+            PRINTF("\r\n freq = %d\r\n", (uint32_t)(1000000 * (1 / pulseWidth)));
 
-        PRINTF("\r\ncaptureDif=%d\r\n", captureDif);
+            ftmIsrFlag = false;
+        }
     }
 }
